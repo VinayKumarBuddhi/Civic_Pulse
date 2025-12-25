@@ -26,6 +26,8 @@ class UserModel:
     def create_user(data: Dict):
         """Create a new user"""
         collection = get_user_collection()
+        if collection is None:
+            raise ConnectionError("Database connection failed. Cannot create user.")
         user_data = {
             "Name": data.get("Name"),
             "Username": data.get("Username"),
@@ -59,6 +61,8 @@ class ReportsModel:
     def create_report(data: Dict):
         """Create a new report"""
         collection = get_reports_collection()
+        if collection is None:
+            raise ConnectionError("Database connection failed. Cannot create report.")
         report_data = {
             "Image": data.get("Image", ""),
             "Description": data.get("Description"),
@@ -106,6 +110,8 @@ class NGOModel:
     def create_ngo(data: Dict):
         """Create a new NGO"""
         collection = get_ngo_collection()
+        if collection is None:
+            raise ConnectionError("Database connection failed. Cannot create NGO.")
         ngo_data = {
             "Username": data.get("Username"),
             "Password": data.get("Password"),  # Should be hashed before calling
@@ -133,6 +139,20 @@ class NGOModel:
         """Find NGO by ID"""
         collection = get_ngo_collection()
         return collection.find_one({"_id": ObjectId(ngo_id)})
+    
+    @staticmethod
+    def find_all_active():
+        """Find all active NGOs"""
+        collection = get_ngo_collection()
+        return list(collection.find({"isActive": True}))
+    
+    @staticmethod
+    def find_all():
+        """Find all NGOs"""
+        collection = get_ngo_collection()
+        return list(collection.find({}))
+    
+
 
 
 class VolunteersModel:
@@ -142,6 +162,8 @@ class VolunteersModel:
     def create_volunteer(data: Dict):
         """Create a new volunteer"""
         collection = get_volunteers_collection()
+        if collection is None:
+            raise ConnectionError("Database connection failed. Cannot create volunteer.")
         volunteer_data = {
             "Username": data.get("Username"),
             "Password": data.get("Password"),  # Should be hashed before calling
@@ -163,6 +185,14 @@ class VolunteersModel:
         """Find volunteers by NGO"""
         collection = get_volunteers_collection()
         return list(collection.find({"NGO": ObjectId(ngo_id)}))
+    
+    @staticmethod
+    def delete_volunteer(volunteer_id: str):
+        """Delete a volunteer"""
+        collection = get_volunteers_collection()
+        if collection is None:
+            raise ConnectionError("Database connection failed. Cannot delete volunteer.")
+        return collection.delete_one({"_id": ObjectId(volunteer_id)})
 
 
 class ApplicationsModel:
@@ -172,6 +202,8 @@ class ApplicationsModel:
     def create_application(data: Dict):
         """Create a new application"""
         collection = get_applications_collection()
+        if collection is None:
+            raise ConnectionError("Database connection failed. Cannot create application.")
         application_data = {
             "Username": data.get("Username"),
             "NGOselected": ObjectId(data.get("NGOselected")),
@@ -198,6 +230,14 @@ class ApplicationsModel:
         """Find applications by NGO"""
         collection = get_applications_collection()
         return list(collection.find({"NGOselected": ObjectId(ngo_id)}))
+    
+    @staticmethod
+    def find_by_username_and_ngo(username: str, ngo_id: str):
+        """Find application by username and NGO"""
+        collection = get_applications_collection()
+        if collection is None:
+            return None
+        return collection.find_one({"Username": username, "NGOselected": ObjectId(ngo_id)})
 
 
 class AdminModel:
