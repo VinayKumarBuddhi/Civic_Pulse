@@ -72,6 +72,7 @@ class ReportsModel:
             "Address": data.get("Address"),
             "assignedTo": [],
             "Status": "not verified",  # Default status
+            "severityScore": 0.0,  # Initial score, will be calculated during verification
             "workReview": None,
             "resolvedImage": None,
             "created_at": datetime.now(),
@@ -101,6 +102,41 @@ class ReportsModel:
             {"_id": ObjectId(report_id)},
             {"$set": {"Status": status, "updated_at": datetime.now()}}
         )
+    
+    @staticmethod
+    def update_severity_score(report_id: str, severity_score: float):
+        """Update report severity score"""
+        if not (0.0 <= severity_score <= 10.0):
+            raise ValueError("Severity score must be between 0.0 and 10.0")
+        collection = get_reports_collection()
+        return collection.update_one(
+            {"_id": ObjectId(report_id)},
+            {"$set": {"severityScore": severity_score, "updated_at": datetime.now()}}
+        )
+    
+    @staticmethod
+    def update_status_and_severity(report_id: str, status: str, severity_score: float):
+        """Update both report status and severity score"""
+        if status not in REPORT_STATUS_ENUM:
+            raise ValueError(f"Invalid status. Must be one of {REPORT_STATUS_ENUM}")
+        if not (0.0 <= severity_score <= 10.0):
+            raise ValueError("Severity score must be between 0.0 and 10.0")
+        collection = get_reports_collection()
+        return collection.update_one(
+            {"_id": ObjectId(report_id)},
+            {"$set": {"Status": status, "severityScore": severity_score, "updated_at": datetime.now()}}
+        )
+    
+    @staticmethod
+    def find_by_severity_range(min_score: float, max_score: float, status: Optional[str] = None):
+        """Find reports by severity score range, optionally filtered by status"""
+        collection = get_reports_collection()
+        query = {
+            "severityScore": {"$gte": min_score, "$lte": max_score}
+        }
+        if status:
+            query["Status"] = status
+        return list(collection.find(query).sort("severityScore", -1))  # Sort by severity descending
 
 
 class NGOModel:

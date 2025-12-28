@@ -49,6 +49,7 @@ REPORTS_SCHEMA = {
     },
     "assignedTo": list,  # Array of [NGO, volunteers] references
     "Status": str,  # enum: 'not verified', 'verified', 'assigned', 'in-progress', 'resolved'
+    "severityScore": float,  # Severity score (0.0 to 10.0), calculated during verification
     "workReview": Optional[str],
     "resolvedImage": Optional[str],  # Base64 encoded or file path
     "created_at": datetime,

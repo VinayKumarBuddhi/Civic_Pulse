@@ -212,8 +212,42 @@ def render_report_issue_form(username):
                     result = ReportsModel.create_report(report_data)
                     
                     if result.inserted_id:
-                        st.success("✅ Issue reported successfully! It will be reviewed and assigned to an appropriate NGO.")
-                        st.balloons()
+                        report_id = str(result.inserted_id)
+                        
+                        # Step 3: Verify issue and calculate severity (async or background)
+                        # Import here to avoid circular imports
+                        try:
+                            from services.issue_verifier import verify_and_score_issue
+                            
+                            # Verify issue and calculate severity
+                            with st.spinner("🔍 Verifying issue and calculating severity..."):
+                                verification_result = verify_and_score_issue(
+                                    report_data.get("Image", ""),
+                                    description,
+                                    categories
+                                )
+                                
+                                if verification_result['is_valid']:
+                                    # Update report with verification status and severity score
+                                    ReportsModel.update_status_and_severity(
+                                        report_id,
+                                        'verified',
+                                        verification_result['severity_score']
+                                    )
+                                    st.success(f"✅ Issue verified! Severity Score: {verification_result['severity_score']}/10.0")
+                                    st.success("✅ Issue reported successfully! It will be assigned to an appropriate NGO.")
+                                    st.balloons()
+                                else:
+                                    # Keep status as "not verified"
+                                    st.warning(f"⚠️ Issue verification inconclusive (confidence: {verification_result['confidence']:.2f}). Report submitted for manual review.")
+                        except ImportError:
+                            # If verification module not available, just create the report
+                            st.success("✅ Issue reported successfully! It will be reviewed and assigned to an appropriate NGO.")
+                            st.info("ℹ️ Issue verification module not available. Please install TensorFlow for automatic verification.")
+                        except Exception as e:
+                            # If verification fails, still save the report
+                            st.success("✅ Issue reported successfully! It will be reviewed and assigned to an appropriate NGO.")
+                            st.warning(f"⚠️ Automatic verification failed: {str(e)}. Report submitted for manual review.")
                     else:
                         st.error("Failed to create issue report. Please try again.")
                         
