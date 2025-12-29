@@ -2,9 +2,16 @@
 Civic Pulse - Main Landing Page
 Landing page with NGO details, Register/Sign-in options, and Chatbot
 """
-import streamlit as st
+import os
 import sys
 from pathlib import Path
+
+# Suppress PyTorch/Streamlit compatibility warnings (harmless but noisy)
+os.environ.setdefault('PYTORCH_ENABLE_MPS_FALLBACK', '1')
+# Suppress TensorFlow deprecation warnings
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+
+import streamlit as st
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent))
@@ -14,6 +21,7 @@ from database.database import get_ngo_collection, get_mongodb_client, get_databa
 from bson import ObjectId
 from auth.authentication import login, register_user
 from auth.session import login_user, logout_user, is_authenticated, get_current_role, get_current_username
+from rag.vector_store import initialize_vector_store
 
 # Page configuration
 st.set_page_config(
@@ -280,6 +288,16 @@ def render_chatbot():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
+def initialize_app():
+    """Initialize application components on startup"""
+    # Initialize vector store for RAG matching
+    try:
+        initialize_vector_store()
+        print("✅ Vector store initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Vector store initialization failed: {str(e)}")
+        print("   RAG matching may not work correctly. Check ChromaDB installation.")
+
 def check_mongodb_connection():
     """Check MongoDB connection and print status"""
     print("=" * 50)
@@ -319,6 +337,9 @@ def check_mongodb_connection():
 
 # Main page content
 def main():
+    # Initialize app components (vector store, etc.)
+    initialize_app()
+    
     # Check MongoDB connection on startup
     mongodb_connected = check_mongodb_connection()
     

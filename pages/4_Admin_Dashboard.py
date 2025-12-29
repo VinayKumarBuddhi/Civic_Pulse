@@ -18,6 +18,7 @@ from database.database import get_reports_collection, get_ngo_collection, get_vo
 from auth.session import is_authenticated, get_current_username, get_current_user, require_role, logout_user
 from auth.authentication import hash_password
 from database.schemas import REPORT_STATUS_ENUM, APPLICATION_STATUS_ENUM
+from rag.vector_store import add_ngo_to_vector_db, update_ngo_in_vector_db, remove_ngo_from_vector_db
 
 # Page configuration
 st.set_page_config(
@@ -188,6 +189,13 @@ def render_manage_ngos():
                             result = NGOModel.create_ngo(ngo_data)
                             
                             if result.inserted_id:
+                                ngo_id = str(result.inserted_id)
+                                # Automatically add NGO to vector DB for RAG matching
+                                try:
+                                    add_ngo_to_vector_db(ngo_id)
+                                except Exception as vec_error:
+                                    st.warning(f"⚠️ NGO created but vector DB update failed: {str(vec_error)}")
+                                
                                 st.success(f"✅ NGO account created successfully!")
                                 st.info(f"**Username:** {username}\n\n**Password:** {password}\n\n⚠️ Please share these credentials securely with the NGO.")
                                 st.balloons()
@@ -254,11 +262,24 @@ def render_manage_ngos():
                             try:
                                 ngo_collection = get_ngo_collection()
                                 if ngo_collection is not None:
+                                    new_active_status = not is_active
                                     ngo_collection.update_one(
                                         {"_id": ObjectId(ngo_id)},
-                                        {"$set": {"isActive": not is_active, "updated_at": datetime.now()}}
+                                        {"$set": {"isActive": new_active_status, "updated_at": datetime.now()}}
                                     )
-                                    st.success(f"NGO status updated to {'Active' if not is_active else 'Inactive'}")
+                                    
+                                    # Update vector DB based on new status
+                                    try:
+                                        if new_active_status:
+                                            # NGO is now active, add/update in vector DB
+                                            update_ngo_in_vector_db(ngo_id)
+                                        else:
+                                            # NGO is now inactive, remove from vector DB
+                                            remove_ngo_from_vector_db(ngo_id)
+                                    except Exception as vec_error:
+                                        st.warning(f"⚠️ NGO status updated but vector DB update failed: {str(vec_error)}")
+                                    
+                                    st.success(f"NGO status updated to {'Active' if new_active_status else 'Inactive'}")
                                     st.rerun()
                             except Exception as e:
                                 st.error(f"Error updating NGO: {str(e)}")

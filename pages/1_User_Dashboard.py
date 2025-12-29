@@ -235,8 +235,29 @@ def render_report_issue_form(username):
                                         verification_result['severity_score']
                                     )
                                     st.success(f"✅ Issue verified! Severity Score: {verification_result['severity_score']}/10.0")
-                                    st.success("✅ Issue reported successfully! It will be assigned to an appropriate NGO.")
-                                    st.balloons()
+                                    
+                                    # Step 6 & 7: Auto-assign to best matching NGO using RAG
+                                    try:
+                                        from services.issue_service import auto_assign_verified_issue
+                                        
+                                        with st.spinner("🔍 Matching issue to best NGO..."):
+                                            assign_success, assigned_ngo_id, assign_error = auto_assign_verified_issue(report_id)
+                                            
+                                            if assign_success and assigned_ngo_id:
+                                                # Get NGO name for display
+                                                assigned_ngo = NGOModel.find_by_id(assigned_ngo_id)
+                                                ngo_name = assigned_ngo.get("Username", "NGO") if assigned_ngo else "NGO"
+                                                st.success(f"✅ Issue automatically assigned to **{ngo_name}**!")
+                                                st.balloons()
+                                            else:
+                                                st.warning(f"⚠️ Issue verified but auto-assignment failed: {assign_error or 'No matching NGO found'}")
+                                                st.info("ℹ️ The issue will be manually reviewed and assigned.")
+                                    except ImportError:
+                                        st.info("ℹ️ Auto-assignment module not available. Issue will be manually assigned.")
+                                    except Exception as assign_ex:
+                                        st.warning(f"⚠️ Auto-assignment error: {str(assign_ex)}. Issue will be manually reviewed.")
+                                    
+                                    st.success("✅ Issue reported successfully!")
                                 else:
                                     # Keep status as "not verified"
                                     st.warning(f"⚠️ Issue verification inconclusive (confidence: {verification_result['confidence']:.2f}). Report submitted for manual review.")
