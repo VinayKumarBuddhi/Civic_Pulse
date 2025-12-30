@@ -130,15 +130,17 @@ def auto_assign_verified_issue(report_id: str) -> Tuple[bool, Optional[str], Opt
         # Match issue to best NGO
         ngo_id = match_issue_to_ngo(report_id)
         
+        
         if not ngo_id:
             return False, None, "No matching NGO found for this issue"
-        
+        print("ngo found......",ngo_id)
         # Assign issue to NGO
         success, error_msg = assign_issue_to_ngo(report_id, ngo_id)
         
         if success:
             return True, ngo_id, None
         else:
+            print("ngo found but assignment failed......")
             return False, None, error_msg or "Assignment failed"
     
     except Exception as e:

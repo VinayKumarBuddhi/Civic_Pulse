@@ -76,6 +76,7 @@ def _load_cnn_model():
         # Note: In production, you would load custom trained weights here
         # For now, we'll use the pre-trained features and heuristics for classification
         _verification_model = model
+        print("CNN model loaded successfully.")
         
         return model
     
@@ -110,6 +111,7 @@ def _decode_base64_image(image_base64: str) -> Optional[Image.Image]:
         # Convert to RGB if necessary (handles RGBA, L, etc.)
         if image.mode != 'RGB':
             image = image.convert('RGB')
+        print("Image decoded successfully.")
         
         return image
     
@@ -140,6 +142,7 @@ def _preprocess_image_for_cnn(image: Image.Image) -> Optional[np.ndarray]:
         
         # Preprocess for MobileNetV2
         img_array = preprocess_input(img_array)
+        print('Image preprocessed for CNN successfully.')
         
         return img_array
     
@@ -178,7 +181,7 @@ def _extract_urgency_keywords(description: str) -> Dict[str, int]:
     critical_count = sum(1 for keyword in critical_keywords if keyword in description_lower)
     high_count = sum(1 for keyword in high_keywords if keyword in description_lower)
     moderate_count = sum(1 for keyword in moderate_keywords if keyword in description_lower)
-    
+    print("Urgency keywords extracted from description.")
     return {
         'critical': critical_count,
         'high': high_count,
@@ -325,7 +328,7 @@ def verify_issue_image(image_base64: str, description: str = "") -> Dict:
         prediction = model.predict(img_array, verbose=0)[0][0]
         
         # Threshold for validation (adjust based on model performance)
-        confidence_threshold = 0.3
+        confidence_threshold = 0.2
         
         is_valid = prediction >= confidence_threshold
         confidence = float(prediction)
@@ -408,7 +411,7 @@ def is_issue_significant(image_base64: str, description: str = "") -> bool:
     # Consider issue significant if:
     # 1. CNN validates it as valid, AND
     # 2. Confidence is above minimum threshold
-    if verification_result['is_valid'] and verification_result['confidence'] >= 0.3:
+    if verification_result['is_valid'] and verification_result['confidence'] >= 0.2:
         return True
     
     # Also check description for urgency indicators

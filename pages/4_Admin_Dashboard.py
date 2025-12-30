@@ -285,6 +285,9 @@ def render_manage_ngos():
                                 st.error(f"Error updating NGO: {str(e)}")
                         if st.button("View Details", key=f"view_{ngo_id}"):
                             st.session_state[f"show_ngo_details_{ngo_id}"] = not st.session_state.get(f"show_ngo_details_{ngo_id}", False)
+                        # Edit button toggles an edit form for the NGO
+                        if st.button("Edit", key=f"edit_{ngo_id}"):
+                            st.session_state[f"edit_ngo_{ngo_id}"] = not st.session_state.get(f"edit_ngo_{ngo_id}", False)
                     
                     if st.session_state.get(f"show_ngo_details_{ngo_id}", False):
                         with st.expander("NGO Details", expanded=True):
@@ -297,6 +300,94 @@ def render_manage_ngos():
                             st.markdown(f"**Assigned Issues:** {len(issue_ids)}")
                             st.markdown(f"**Volunteers:** {len(volunteers)}")
                             st.markdown(f"**Created:** {created_at.strftime('%B %d, %Y at %I:%M %p') if isinstance(created_at, datetime) else 'Unknown'}")
+
+                    # Edit form (admin) - toggled separately
+                    if st.session_state.get(f"edit_ngo_{ngo_id}", False):
+                        with st.expander("Edit NGO", expanded=True):
+                            try:
+                                ngo_collection = get_ngo_collection()
+                                if ngo_collection is None:
+                                    st.error("Database connection error")
+                                else:
+                                    # Prefill values
+                                    cur_username = ngo.get('Username', '')
+                                    cur_description = ngo.get('Description', '')
+                                    cur_categories = ngo.get('Categories', []) or []
+                                    cur_location = ngo.get('Location', {}) or {}
+                                    cur_address = ngo.get('Address', {}) or {}
+                                    cur_is_active = ngo.get('isActive', True)
+
+                                    with st.form(f"edit_ngo_form_{ngo_id}", clear_on_submit=False):
+                                        username_input = st.text_input("NGO Username *", value=cur_username)
+                                        password_input = st.text_input("Password (leave blank to keep existing)", type="password", value="")
+                                        description_input = st.text_area("Description *", value=cur_description, height=120)
+                                        categories_input = st.multiselect("Select Categories", ISSUE_CATEGORIES, default=cur_categories)
+
+                                        st.markdown("**Location**")
+                                        c1, c2 = st.columns(2)
+                                        with c1:
+                                            latitude_input = st.number_input("Latitude", min_value=-90.0, max_value=90.0, value=float(cur_location.get('latitude', 0.0)), step=0.000001, format="%.6f")
+                                        with c2:
+                                            longitude_input = st.number_input("Longitude", min_value=-180.0, max_value=180.0, value=float(cur_location.get('longitude', 0.0)), step=0.000001, format="%.6f")
+
+                                        st.markdown("**Address**")
+                                        a1, a2 = st.columns(2)
+                                        with a1:
+                                            area_input = st.text_input("Area/Locality", value=cur_address.get('area', ''))
+                                            city_input = st.text_input("City", value=cur_address.get('city', ''))
+                                            district_input = st.text_input("District", value=cur_address.get('dist', '') or cur_address.get('district', ''))
+                                        with a2:
+                                            state_input = st.text_input("State", value=cur_address.get('state', ''))
+                                            pincode_input = st.text_input("Pincode", value=cur_address.get('pincode', ''))
+
+                                        is_active_input = st.checkbox("Active", value=bool(cur_is_active))
+
+                                        submitted_edit = st.form_submit_button("Save Changes", use_container_width=True)
+
+                                        if submitted_edit:
+                                            # Basic validation
+                                            if not username_input or not description_input:
+                                                st.error("Username and description are required")
+                                            else:
+                                                try:
+                                                    # Check username uniqueness
+                                                    existing = NGOModel.find_by_username(username_input)
+                                                    if existing and str(existing.get('_id')) != ngo_id:
+                                                        st.error("Username already exists. Choose a different username.")
+                                                    else:
+                                                        update_doc = {
+                                                            "Username": username_input,
+                                                            "Description": description_input,
+                                                            "Categories": categories_input,
+                                                            "Location": {"latitude": float(latitude_input), "longitude": float(longitude_input)},
+                                                            "Address": {"area": area_input, "city": city_input, "dist": district_input, "state": state_input, "pincode": pincode_input},
+                                                            "isActive": bool(is_active_input),
+                                                            "updated_at": datetime.now()
+                                                        }
+
+                                                        # Update password if provided
+                                                        if password_input:
+                                                            update_doc["Password"] = hash_password(password_input)
+
+                                                        ngo_collection.update_one({"_id": ObjectId(ngo_id)}, {"$set": update_doc})
+
+                                                        # Update vector DB based on active status
+                                                        try:
+                                                            if update_doc["isActive"]:
+                                                                update_ngo_in_vector_db(ngo_id)
+                                                            else:
+                                                                remove_ngo_from_vector_db(ngo_id)
+                                                        except Exception as vec_err:
+                                                            st.warning(f"⚠️ NGO updated but vector DB update failed: {str(vec_err)}")
+
+                                                        st.success("✅ NGO updated successfully")
+                                                        # Close edit form
+                                                        st.session_state[f"edit_ngo_{ngo_id}"] = False
+                                                        st.rerun()
+                                                except Exception as e:
+                                                    st.error(f"Error updating NGO: {str(e)}")
+                            except Exception as e:
+                                st.error(f"Error loading edit form: {str(e)}")
                     
                     st.markdown("---")
                     

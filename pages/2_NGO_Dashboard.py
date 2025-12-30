@@ -285,6 +285,64 @@ def render_assigned_issues(ngo_id: str, ngo_username: str):
     except Exception as e:
         st.error(f"Error fetching issues: {str(e)}")
 
+
+def render_profile_view(ngo_id: str):
+    """Display a read-only view of the NGO profile details"""
+    st.markdown("### 🏷️ NGO Profile (Read-only)")
+    try:
+        ngo = NGOModel.find_by_id(ngo_id)
+        if not ngo:
+            st.error("NGO not found")
+            return
+
+        # Basic info
+        username = ngo.get('Username', 'Unknown')
+        description = ngo.get('Description', 'No description available')
+        categories = ngo.get('Categories', [])
+        is_active = ngo.get('isActive', True)
+        created_at = ngo.get('created_at')
+
+        st.markdown(f"**Username:** {username}")
+        st.markdown(f"**Status:** {'🟢 Active' if is_active else '🔴 Inactive'}")
+        if created_at:
+            try:
+                st.markdown(f"**Created:** {created_at.strftime('%B %d, %Y at %I:%M %p')}")
+            except:
+                st.markdown(f"**Created:** {created_at}")
+
+        st.markdown("**Description:**")
+        st.markdown(description)
+
+        if categories:
+            st.markdown(f"**Categories:** {', '.join(categories)}")
+
+        # Address and location
+        address = ngo.get('Address', {})
+        location = ngo.get('Location', {})
+        st.markdown(f"**Address:** {format_address(address)}")
+        if location and location.get('latitude') and location.get('longitude'):
+            st.markdown(f"**Coordinates:** {location.get('latitude'):.6f}, {location.get('longitude'):.6f}")
+
+        # Counts
+        issues = ngo.get('Issues', []) or []
+        volunteers = VolunteersModel.find_by_ngo(ngo_id) or []
+        applications = ApplicationsModel.find_by_ngo(ngo_id) or []
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Assigned Issues", len(issues))
+        with col2:
+            st.metric("Volunteers", len(volunteers))
+        with col3:
+            st.metric("Applications", len(applications))
+
+        st.markdown("---")
+
+        # Show raw NGO document (optional, read-only)
+
+    except Exception as e:
+        st.error(f"Error loading NGO profile: {str(e)}")
+
 def render_manage_volunteers(ngo_id: str):
     """Manage volunteers - view and remove (volunteers come from accepted applications)"""
  
@@ -532,18 +590,21 @@ def main():
         except Exception:
             st.info("Stats not available")
     
-    # Main content tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 Assigned Issues", "👥 Manage Volunteers", "📨 Applications", "📊 Statistics"])
-    
+    # Main content tabs (added read-only Profile tab)
+    tab_profile, tab1, tab2, tab3, tab4 = st.tabs(["🏷️ Profile", "📋 Assigned Issues", "👥 Manage Volunteers", "📨 Applications", "📊 Statistics"])
+
+    with tab_profile:
+        render_profile_view(ngo_id)
+
     with tab1:
         render_assigned_issues(ngo_id, username)
-    
+
     with tab2:
         render_manage_volunteers(ngo_id)
-    
+
     with tab3:
         render_volunteer_applications(ngo_id)
-    
+
     with tab4:
         render_statistics(ngo_id)
 

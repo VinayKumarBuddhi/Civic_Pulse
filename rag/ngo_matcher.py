@@ -55,7 +55,7 @@ def search_similar_ngos(
     issue_location: Optional[Dict] = None,
     issue_address: Optional[Dict] = None,
     severity_score: float = 0.0,
-    top_k: int = 3
+    top_k: int = 5
 ) -> List[Tuple[str, float]]:
     """
     Search shared vector DB for NGOs similar to the issue.
@@ -115,7 +115,7 @@ def search_similar_ngos(
             # For now, we'll search without strict location filter and let similarity handle it
             # You can add location filtering here if needed
             pass
-    
+    print("query_text......",query_text)
     # Search vector DB
     results = search_vector_db(query_text, top_k=top_k, where=where_clause)
     
@@ -175,7 +175,7 @@ def match_issue_to_ngo(report_id: str) -> Optional[str]:
     
     if not matches:
         return None
-    
+    print("matches found......",matches)
     # Filter matches to only active NGOs and verify they exist
     for ngo_id, similarity_score in matches:
         ngo = NGOModel.find_by_id(ngo_id)

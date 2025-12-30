@@ -15,6 +15,8 @@ from chromadb import Client
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 from bson import ObjectId
+import json
+import traceback
 
 from database.models import NGOModel
 
@@ -24,6 +26,38 @@ _emb_model: Optional[SentenceTransformer] = None
 
 # Single collection shared for NGO embeddings (and later issues/chatbot docs)
 _NGO_COLLECTION_NAME = "ngo_embeddings"
+
+# Using print statements for visibility; traceback used for exception details
+
+
+def _normalize_metadata_value(v):
+    """Ensure metadata values are primitive types supported by Chroma.
+
+    Chroma expects metadata values to be str/int/float/bool/None (or SparseVector).
+    Convert lists to comma-joined strings and dicts to JSON strings.
+    """
+    if v is None:
+        return None
+    if isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, list):
+        # join simple lists into a comma-separated string
+        try:
+            return ", ".join([str(x) for x in v])
+        except Exception:
+            return json.dumps(v, ensure_ascii=False)
+    if isinstance(v, dict):
+        try:
+            # prefer a compact JSON representation
+            return json.dumps(v, ensure_ascii=False)
+        except Exception:
+            return str(v)
+    # fallback
+    return str(v)
+
+
+def _normalize_metadata(d: dict) -> dict:
+    return {k: _normalize_metadata_value(v) for k, v in (d or {}).items()}
 
 
 def _get_chroma_client() -> Client:
@@ -102,6 +136,9 @@ def initialize_vector_store() -> None:
     existing = {c.name for c in client.list_collections()}
     if _NGO_COLLECTION_NAME not in existing:
         client.create_collection(name=_NGO_COLLECTION_NAME)
+    existing = {c.name for c in client.list_collections()}
+    create_all_ngo_embeddings()
+    print(f"[INFO] collections after init: {existing}")
 
 
 def _get_ngo_collection():
@@ -120,7 +157,6 @@ def create_all_ngo_embeddings() -> None:
     - Once after first setting up the vector DB
     - When you need to rebuild the index
     """
-    initialize_vector_store()
     collection = _get_ngo_collection()
 
     ngos = NGOModel.find_all_active()
@@ -138,21 +174,50 @@ def create_all_ngo_embeddings() -> None:
         text = _build_ngo_text(ngo)
         ids.append(ngo_id)
         texts.append(text)
-        metadatas.append(
-            {
-                "ngo_id": ngo_id,
-                "username": ngo.get("Username", ""),
-                "categories": ngo.get("Categories", []),
-                "city": ngo.get("Address", {}).get("city", ""),
-                "state": ngo.get("Address", {}).get("state", ""),
-                "pincode": ngo.get("Address", {}).get("pincode", ""),
-            }
-        )
+        raw_meta = {
+            "ngo_id": ngo_id,
+            "username": ngo.get("Username", ""),
+            "categories": ngo.get("Categories", []),
+            "city": ngo.get("Address", {}).get("city", ""),
+            "state": ngo.get("Address", {}).get("state", ""),
+            "pincode": ngo.get("Address", {}).get("pincode", ""),
+        }
+        metadatas.append(_normalize_metadata(raw_meta))
 
     embeddings = emb_model.encode(texts, show_progress_bar=True).tolist()
 
-    # Clear existing entries for a clean rebuild
-    collection.delete(where={})
+    # Clear existing entries for a clean rebuild.
+    # Avoid passing an empty `where={}` to Chroma (some versions reject it).
+    try:
+        # Try to get metadata entries and derive stored NGO ids from them.
+        existing = collection.get(include=["metadatas", "documents"]) or {}
+        metas = existing.get("metadatas", [])
+        if metas and isinstance(metas[0], list):
+            metas = metas[0]
+
+        existing_ids = []
+        if metas:
+            for m in metas:
+                if isinstance(m, dict) and m.get("ngo_id"):
+                    existing_ids.append(m.get("ngo_id"))
+
+        # Fallback: if metadatas didn't include ids, try any returned 'ids' key.
+        if not existing_ids:
+            existing_ids = existing.get("ids", [])
+            if existing_ids and isinstance(existing_ids[0], list):
+                existing_ids = existing_ids[0]
+
+        if existing_ids:
+            collection.delete(ids=existing_ids)
+        else:
+            # If we couldn't determine ids, attempt a full delete call.
+            try:
+                collection.delete()
+            except Exception:
+                print("[DEBUG] collection.delete() not supported by this Chroma client variant; nothing to delete or different API")
+    except Exception as e:
+        print("[ERROR] Failed to clear collection before rebuild:", e)
+        traceback.print_exc()
 
     collection.add(
         ids=ids,
@@ -162,7 +227,15 @@ def create_all_ngo_embeddings() -> None:
     )
 
     # Persist to disk
-    _get_chroma_client().persist()
+    client = _get_chroma_client()
+    if hasattr(client, "persist"):
+        try:
+            client.persist()
+        except Exception as e:
+            print("[ERROR] Chroma client.persist() call failed:", e)
+            traceback.print_exc()
+    else:
+        print("[DEBUG] Chroma client has no persist() method; skipping persist call")
 
 
 def add_ngo_to_vector_db(ngo_id: str) -> None:
@@ -187,20 +260,26 @@ def add_ngo_to_vector_db(ngo_id: str) -> None:
     collection.add(
         ids=[ngo_id],
         embeddings=[embedding],
-        metadatas=[
-            {
-                "ngo_id": ngo_id,
-                "username": ngo.get("Username", ""),
-                "categories": ngo.get("Categories", []),
-                "city": ngo.get("Address", {}).get("city", ""),
-                "state": ngo.get("Address", {}).get("state", ""),
-                "pincode": ngo.get("Address", {}).get("pincode", ""),
-            }
-        ],
+        metadatas=[_normalize_metadata({
+            "ngo_id": ngo_id,
+            "username": ngo.get("Username", ""),
+            "categories": ngo.get("Categories", []),
+            "city": ngo.get("Address", {}).get("city", ""),
+            "state": ngo.get("Address", {}).get("state", ""),
+            "pincode": ngo.get("Address", {}).get("pincode", ""),
+        })],
         documents=[text],
     )
 
-    _get_chroma_client().persist()
+    try:
+        client = _get_chroma_client()
+        if hasattr(client, "persist"):
+            client.persist()
+        else:
+            print("[DEBUG] Chroma client has no persist() method; skipping persist call")
+    except Exception as e:
+        print("[ERROR] Chroma client.persist() call failed:", e)
+        traceback.print_exc()
 
 
 def update_ngo_in_vector_db(ngo_id: str) -> None:
@@ -219,7 +298,15 @@ def update_ngo_in_vector_db(ngo_id: str) -> None:
     # If NGO no longer exists or is inactive, remove it
     if not ngo or not ngo.get("isActive", True):
         collection.delete(ids=[ngo_id])
-        _get_chroma_client().persist()
+        try:
+            client = _get_chroma_client()
+            if hasattr(client, "persist"):
+                client.persist()
+            else:
+                print("[DEBUG] Chroma client has no persist() method; skipping persist call")
+        except Exception as e:
+            print("[ERROR] Chroma client.persist() call failed:", e)
+            traceback.print_exc()
         return
 
     text = _build_ngo_text(ngo)
@@ -230,20 +317,26 @@ def update_ngo_in_vector_db(ngo_id: str) -> None:
     collection.add(
         ids=[ngo_id],
         embeddings=[embedding],
-        metadatas=[
-            {
-                "ngo_id": ngo_id,
-                "username": ngo.get("Username", ""),
-                "categories": ngo.get("Categories", []),
-                "city": ngo.get("Address", {}).get("city", ""),
-                "state": ngo.get("Address", {}).get("state", ""),
-                "pincode": ngo.get("Address", {}).get("pincode", ""),
-            }
-        ],
+        metadatas=[_normalize_metadata({
+            "ngo_id": ngo_id,
+            "username": ngo.get("Username", ""),
+            "categories": ngo.get("Categories", []),
+            "city": ngo.get("Address", {}).get("city", ""),
+            "state": ngo.get("Address", {}).get("state", ""),
+            "pincode": ngo.get("Address", {}).get("pincode", ""),
+        })],
         documents=[text],
     )
 
-    _get_chroma_client().persist()
+    try:
+        client = _get_chroma_client()
+        if hasattr(client, "persist"):
+            client.persist()
+        else:
+            print("[DEBUG] Chroma client has no persist() method; skipping persist call")
+    except Exception as e:
+        print("[ERROR] Chroma client.persist() call failed:", e)
+        traceback.print_exc()
 
 
 def remove_ngo_from_vector_db(ngo_id: str) -> None:
@@ -257,7 +350,15 @@ def remove_ngo_from_vector_db(ngo_id: str) -> None:
     collection = _get_ngo_collection()
 
     collection.delete(ids=[ngo_id])
-    _get_chroma_client().persist()
+    try:
+        client = _get_chroma_client()
+        if hasattr(client, "persist"):
+            client.persist()
+        else:
+            print("[DEBUG] Chroma client has no persist() method; skipping persist call")
+    except Exception as e:
+        print("[ERROR] Chroma client.persist() call failed:", e)
+        traceback.print_exc()
 
 
 def search_vector_db(query_text: str, top_k: int = 5, where: Optional[Dict[str, Any]] = None):
@@ -270,15 +371,54 @@ def search_vector_db(query_text: str, top_k: int = 5, where: Optional[Dict[str, 
 
     initialize_vector_store()
     collection = _get_ngo_collection()
+    print(f"[DEBUG] collection in search_vector_db: {collection}")
     emb_model = _get_embedding_model()
 
     query_embedding = emb_model.encode([query_text]).tolist()
 
-    results = collection.query(
-        query_embeddings=query_embedding,
-        n_results=top_k,
-        where=where or {},
-    )
+    print(f"[DEBUG] search_vector_db called: top_k={top_k} where={where}")
+
+    # Log collection stats to help diagnose empty-result situations.
+    try:
+        all_entries = collection.get(include=["metadatas", "documents"]) or {}
+        metas = all_entries.get("metadatas", [])
+        if metas and isinstance(metas[0], list):
+            metas = metas[0]
+
+        if metas:
+            total = len(metas)
+        else:
+            docs = all_entries.get("documents", [])
+            if docs and isinstance(docs[0], list):
+                total = len(docs[0])
+            else:
+                total = len(docs)
+
+        print(f"[INFO] Chroma collection '{_NGO_COLLECTION_NAME}' total entries={total}")
+    except Exception:
+        print("[ERROR] Unable to read collection stats before query")
+        traceback.print_exc()
+
+    # Only pass a non-empty 'where' to Chroma; an empty dict causes errors
+    try:
+        if where and isinstance(where, dict) and len(where) > 0:
+            results = collection.query(
+                query_embeddings=query_embedding,
+                n_results=top_k,
+                where=where,
+            )
+        else:
+            results = collection.query(
+                query_embeddings=query_embedding,
+                n_results=top_k,
+            )
+        print(f"[DEBUG] results from chroma query: {results}")
+    except Exception as e:
+        print("[ERROR] Chroma query failed:", e)
+        traceback.print_exc()
+        # Return empty hits on failure to avoid bubbling low-level errors
+        return []
+    print(f"[DEBUG] search_vector_db raw results: {results}")
 
     # Normalize output to a list of dicts for easier consumption
     hits = []
@@ -296,7 +436,6 @@ def search_vector_db(query_text: str, top_k: int = 5, where: Optional[Dict[str, 
                 "document": documents[idx] if idx < len(documents) else "",
             }
         )
-
+    print(f"[DEBUG] hits: {hits}")
     return hits
-
 
