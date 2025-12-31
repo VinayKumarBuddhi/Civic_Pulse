@@ -188,36 +188,7 @@ def create_all_ngo_embeddings() -> None:
 
     # Clear existing entries for a clean rebuild.
     # Avoid passing an empty `where={}` to Chroma (some versions reject it).
-    try:
-        # Try to get metadata entries and derive stored NGO ids from them.
-        existing = collection.get(include=["metadatas", "documents"]) or {}
-        metas = existing.get("metadatas", [])
-        if metas and isinstance(metas[0], list):
-            metas = metas[0]
-
-        existing_ids = []
-        if metas:
-            for m in metas:
-                if isinstance(m, dict) and m.get("ngo_id"):
-                    existing_ids.append(m.get("ngo_id"))
-
-        # Fallback: if metadatas didn't include ids, try any returned 'ids' key.
-        if not existing_ids:
-            existing_ids = existing.get("ids", [])
-            if existing_ids and isinstance(existing_ids[0], list):
-                existing_ids = existing_ids[0]
-
-        if existing_ids:
-            collection.delete(ids=existing_ids)
-        else:
-            # If we couldn't determine ids, attempt a full delete call.
-            try:
-                collection.delete()
-            except Exception:
-                print("[DEBUG] collection.delete() not supported by this Chroma client variant; nothing to delete or different API")
-    except Exception as e:
-        print("[ERROR] Failed to clear collection before rebuild:", e)
-        traceback.print_exc()
+    
 
     collection.add(
         ids=ids,
@@ -246,7 +217,7 @@ def add_ngo_to_vector_db(ngo_id: str) -> None:
     if not ngo_id:
         return
 
-    initialize_vector_store()
+
     collection = _get_ngo_collection()
     emb_model = _get_embedding_model()
 
@@ -289,7 +260,7 @@ def update_ngo_in_vector_db(ngo_id: str) -> None:
     if not ngo_id:
         return
 
-    initialize_vector_store()
+
     collection = _get_ngo_collection()
     emb_model = _get_embedding_model()
 
@@ -346,7 +317,6 @@ def remove_ngo_from_vector_db(ngo_id: str) -> None:
     if not ngo_id:
         return
 
-    initialize_vector_store()
     collection = _get_ngo_collection()
 
     collection.delete(ids=[ngo_id])
@@ -369,7 +339,6 @@ def search_vector_db(query_text: str, top_k: int = 5, where: Optional[Dict[str, 
     if not query_text:
         return []
 
-    initialize_vector_store()
     collection = _get_ngo_collection()
     print(f"[DEBUG] collection in search_vector_db: {collection}")
     emb_model = _get_embedding_model()

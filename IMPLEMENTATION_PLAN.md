@@ -147,7 +147,6 @@ streamlit-authenticator pillow pybase64
 - Vector similarity search
 - Context retrieval
 - Response generation (using LLM like OpenAI or local model)
-- Store chat history
 
 #### Step 4.3: Chatbot Features
 - Query previous reports by site/location

@@ -98,6 +98,14 @@ if 'show_register' not in st.session_state:
     st.session_state.show_register = False
 if 'show_signin' not in st.session_state:
     st.session_state.show_signin = False
+if 'app_initialized' not in st.session_state:
+    st.session_state.app_initialized = False
+if 'mongodb_checked' not in st.session_state:
+    st.session_state.mongodb_checked = False
+if 'mongodb_connected' not in st.session_state:
+    st.session_state.mongodb_connected = False
+if 'mongodb_info' not in st.session_state:
+    st.session_state.mongodb_info = None
 
 def format_address(address_dict):
     """Format address dictionary to readable string"""
@@ -290,6 +298,9 @@ def render_chatbot():
 
 def initialize_app():
     """Initialize application components on startup"""
+    # Ensure initialization runs only once per session
+    if st.session_state.get('app_initialized'):
+        return
     # Initialize vector store for RAG matching
     try:
         initialize_vector_store()
@@ -297,9 +308,16 @@ def initialize_app():
     except Exception as e:
         print(f"⚠️ Warning: Vector store initialization failed: {str(e)}")
         print("   RAG matching may not work correctly. Check ChromaDB installation.")
+    finally:
+        # Mark app as initialized regardless to avoid repeated init attempts during the session
+        st.session_state.app_initialized = True
 
 def check_mongodb_connection():
     """Check MongoDB connection and print status"""
+    # Run check only once per Streamlit session
+    if st.session_state.get('mongodb_checked'):
+        return st.session_state.get('mongodb_connected', False)
+
     print("=" * 50)
     print("Checking MongoDB Connection...")
     print("=" * 50)
@@ -319,29 +337,48 @@ def check_mongodb_connection():
             if db is not None:
                 collections = db.list_collection_names()
                 print(f"📁 Available Collections: {collections if collections else 'None (Database is empty)'}")
+                # Update session state so the rest of the app can read status
+                st.session_state.mongodb_connected = True
+                st.session_state.mongodb_info = {
+                    'database': DATABASE_NAME,
+                    'address': client.address,
+                    'collections': collections
+                }
+                st.session_state.mongodb_checked = True
                 print("=" * 50)
                 return True
             else:
                 print("❌ MongoDB Connection: FAILED - Could not access database")
                 print("=" * 50)
+                st.session_state.mongodb_connected = False
+                st.session_state.mongodb_info = None
+                st.session_state.mongodb_checked = True
                 return False
         else:
             print("❌ MongoDB Connection: FAILED - Client is None")
             print("=" * 50)
+            st.session_state.mongodb_connected = False
+            st.session_state.mongodb_info = None
+            st.session_state.mongodb_checked = True
             return False
     except Exception as e:
         print(f"❌ MongoDB Connection: FAILED")
         print(f"⚠️  Error: {str(e)}")
         print("=" * 50)
+        st.session_state.mongodb_connected = False
+        st.session_state.mongodb_info = {'error': str(e)}
+        st.session_state.mongodb_checked = True
         return False
 
 # Main page content
 def main():
-    # Initialize app components (vector store, etc.)
-    initialize_app()
+
     
     # Check MongoDB connection on startup
     mongodb_connected = check_mongodb_connection()
+    
+    # Initialize app components (vector store, etc.)
+    initialize_app()
     
     # Header
     st.markdown('<div class="main-header">🌍 Civic Pulse</div>', unsafe_allow_html=True)
