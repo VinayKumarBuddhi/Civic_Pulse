@@ -78,7 +78,15 @@ class ReportsModel:
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }
-        return collection.insert_one(report_data)
+        result = collection.insert_one(report_data)
+        try:
+            # local import to avoid circular imports at module load
+            from rag.vector_store import add_report_to_vector_db
+            add_report_to_vector_db(str(result.inserted_id))
+        except Exception:
+            # keep DB operation successful even if vector add fails
+            pass
+        return result
     
     @staticmethod
     def find_by_id(report_id: str):
@@ -98,10 +106,16 @@ class ReportsModel:
         if status not in REPORT_STATUS_ENUM:
             raise ValueError(f"Invalid status. Must be one of {REPORT_STATUS_ENUM}")
         collection = get_reports_collection()
-        return collection.update_one(
+        res = collection.update_one(
             {"_id": ObjectId(report_id)},
             {"$set": {"Status": status, "updated_at": datetime.now()}}
         )
+        try:
+            from rag.vector_store import update_report_in_vector_db
+            update_report_in_vector_db(report_id)
+        except Exception:
+            pass
+        return res
     
     @staticmethod
     def update_severity_score(report_id: str, severity_score: float):
@@ -109,10 +123,16 @@ class ReportsModel:
         if not (0.0 <= severity_score <= 10.0):
             raise ValueError("Severity score must be between 0.0 and 10.0")
         collection = get_reports_collection()
-        return collection.update_one(
+        res = collection.update_one(
             {"_id": ObjectId(report_id)},
             {"$set": {"severityScore": severity_score, "updated_at": datetime.now()}}
         )
+        try:
+            from rag.vector_store import update_report_in_vector_db
+            update_report_in_vector_db(report_id)
+        except Exception:
+            pass
+        return res
     
     @staticmethod
     def update_status_and_severity(report_id: str, status: str, severity_score: float):
@@ -122,10 +142,16 @@ class ReportsModel:
         if not (0.0 <= severity_score <= 10.0):
             raise ValueError("Severity score must be between 0.0 and 10.0")
         collection = get_reports_collection()
-        return collection.update_one(
+        res = collection.update_one(
             {"_id": ObjectId(report_id)},
             {"$set": {"Status": status, "severityScore": severity_score, "updated_at": datetime.now()}}
         )
+        try:
+            from rag.vector_store import update_report_in_vector_db
+            update_report_in_vector_db(report_id)
+        except Exception:
+            pass
+        return res
     
     @staticmethod
     def find_by_severity_range(min_score: float, max_score: float, status: Optional[str] = None):

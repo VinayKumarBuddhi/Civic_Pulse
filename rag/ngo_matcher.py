@@ -101,20 +101,21 @@ def search_similar_ngos(
     
     query_text = " | ".join([p for p in query_parts if p])
     
-    # Optional: Filter by location (city, state, pincode) for geographic matching
-    where_clause = None
-    if issue_address:
-        where_clause = {}
-        city = issue_address.get("city", "")
-        state = issue_address.get("state", "")
-        pincode = issue_address.get("pincode", "")
-        
-        # Build location filter (match city, state, or pincode)
-        if city or state or pincode:
-            # ChromaDB supports $or for multiple conditions
-            # For now, we'll search without strict location filter and let similarity handle it
-            # You can add location filtering here if needed
-            pass
+    # Optional: Filter by location (city, state, pincode) for geographic matching    
+    where_clause = {"type": "ngo"}
+    # if issue_address:
+    #     city = issue_address.get("city", "")
+    #     state = issue_address.get("state", "")
+    #     pincode = issue_address.get("pincode", "")
+
+    #     # Add exact metadata filters when present
+    #     if city:
+    #         where_clause["city"] = city
+    #     if state:
+    #         where_clause["state"] = state
+    #     if pincode:
+    #         where_clause["pincode"] = pincode
+
     print("query_text......",query_text)
     # Search vector DB
     results = search_vector_db(query_text, top_k=top_k, where=where_clause)
@@ -122,14 +123,19 @@ def search_similar_ngos(
     # Convert to list of (ngo_id, similarity_score) tuples
     matches = []
     for hit in results:
-        ngo_id = hit.get("ngo_id", "")
+        # `search_vector_db` returns prefixed id e.g. "ngo:<id>" in `id` and may include `ngo_id` backwards-compatible
+        raw_ngo_id = hit.get("ngo_id") or hit.get("id", "")
+        # If id prefixed like "ngo:<id>", strip prefix
+        if isinstance(raw_ngo_id, str) and raw_ngo_id.startswith("ngo:"):
+            ngo_id = raw_ngo_id.split(":", 1)[1]
+        else:
+            ngo_id = raw_ngo_id
+
         distance = hit.get("distance")
-        
         if ngo_id and distance is not None:
-            # Convert distance to similarity score (1 - distance)
-            # Lower distance = higher similarity
             similarity = 1.0 - distance
             matches.append((ngo_id, similarity))
+
     
     # Sort by similarity (highest first)
     matches.sort(key=lambda x: x[1], reverse=True)

@@ -321,6 +321,7 @@ def verify_issue_image(image_base64: str, description: str = "") -> Dict:
         model = _load_cnn_model()
         if model is None:
             # Fallback: Use heuristic-based validation
+            print("cnn model didnot loaded......")
             return _heuristic_verification(image, description)
         
         # Predict using CNN
